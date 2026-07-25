@@ -265,21 +265,46 @@ const fileInput = document.getElementById('fileInput');
 // The library index (titles, order, ids) is stored as a single JSON file
 // on Cloudinary itself (as a 'raw' resource), so every device that loads
 // this page reads/writes the same shared list.
-const INDEX_PUBLIC_ID = 'shelf_index.json';
+// No extension here on purpose: for raw resources Cloudinary can append
+// its own guessed extension to the public_id, which made the fetch URL
+// unpredictable. Leaving it extension-less keeps the public_id exactly
+// 'shelf_index' every time.
+const INDEX_PUBLIC_ID = 'shelf_index';
 const INDEX_URL = `https://res.cloudinary.com/${CLOUD_NAME}/raw/upload/${INDEX_PUBLIC_ID}`;
+
+// True only once we've successfully confirmed the real remote state
+// (either loaded existing data, or confirmed there's genuinely none yet).
+// This guards against ever overwriting real data with an empty list just
+// because a fetch failed (network hiccup, CORS, etc).
+let indexLoaded = false;
 
 async function loadIndex() {
   try {
     // cache-busting query param avoids getting a stale CDN-cached copy
     const res = await fetch(`${INDEX_URL}?t=${Date.now()}`);
-    library = res.ok ? await res.json() : [];
+    if (res.ok) {
+      library = await res.json();
+      indexLoaded = true;
+    } else if (res.status === 404) {
+      // genuinely no index file yet (first-ever use)
+      library = [];
+      indexLoaded = true;
+    } else {
+      library = [];
+      indexLoaded = false;
+    }
   } catch (e) {
     library = [];
+    indexLoaded = false;
   }
   library.sort((a, b) => b.addedAt - a.addedAt);
 }
 
 async function saveIndex() {
+  if (!indexLoaded) {
+    alert('목록을 아직 정상적으로 불러오지 못해서 저장을 건너뛰었어요. 페이지를 새로고침한 뒤 다시 시도해주세요.');
+    return;
+  }
   const blob = new Blob([JSON.stringify(library)], { type: 'application/json' });
   const timestamp = Math.floor(Date.now() / 1000);
   const paramsToSign = `overwrite=true&public_id=${INDEX_PUBLIC_ID}&timestamp=${timestamp}${API_SECRET}`;
@@ -309,6 +334,7 @@ async function cloudinaryUpload(blob) {
   const fd = new FormData();
   fd.append('file', blob);
   fd.append('upload_preset', UPLOAD_PRESET);
+  fd.append('tags', 'shelf');
   const res = await fetch(url, { method: 'POST', body: fd });
   if (!res.ok) throw new Error('cloudinary upload failed');
   return res.json(); // { secure_url, public_id, ... }
@@ -350,6 +376,15 @@ async function render() {
     </div>`;
   grid.appendChild(addCard);
   addCard.querySelector('#addCover').onclick = () => fileInput.click();
+
+  if (!indexLoaded) {
+    const warn = document.createElement('div');
+    warn.className = 'empty';
+    warn.style.gridColumn = '1 / -1';
+    warn.style.padding = '20px';
+    warn.innerHTML = `<div class="empty-text">목록 동기화에 문제가 있어요. 지금 추가하는 사진은 이 화면엔 보이지만 다른 기기엔 아직 반영 안 될 수 있어요.</div>`;
+    grid.appendChild(warn);
+  }
 
   for (const u of uploading) {
     const upCard = document.createElement('div');
