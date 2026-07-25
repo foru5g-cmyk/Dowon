@@ -38,6 +38,13 @@ header {
   margin-top: 10px; font-family: 'Noto Serif KR', serif; font-weight: 300;
   font-size: 12.5px; color: var(--ink-faint); letter-spacing: 0.01em;
 }
+.delete-all-btn {
+  margin-top: 14px; background: none; border: none; cursor: pointer;
+  font-family: 'Inter', sans-serif; font-size: 9.5px; letter-spacing: 0.05em;
+  color: var(--ink-faint); opacity: 0.7; transition: opacity 0.15s, color 0.15s;
+}
+.delete-all-btn:hover { opacity: 1; color: var(--ribbon); }
+.delete-all-btn:disabled { opacity: 0.4; cursor: default; }
 
 /* ---------- grid ---------- */
 .wrap { max-width: 940px; margin: 0 auto; padding: 40px 28px 100px; }
@@ -127,7 +134,7 @@ header {
 
 /* ---------- viewer overlay ---------- */
 .viewer {
-  position: fixed; inset: 0; background: rgba(15,14,12,0.94);
+  position: fixed; inset: 0; background: var(--paper);
   display: none; align-items: center; justify-content: center;
   z-index: 200; padding: 20px;
 }
@@ -135,17 +142,18 @@ header {
 .viewer-topbar {
   position: absolute; top: 0; left: 0; right: 0; padding: 20px 26px;
   display: flex; justify-content: space-between; align-items: flex-start;
-  color: #eae8e1;
+  color: var(--ink); border-bottom: 0.5px solid var(--border);
+  background: var(--paper);
 }
 .viewer-meta { display: flex; flex-direction: column; gap: 4px; max-width: 70%; }
 .viewer-title {
   font-family: 'Noto Serif KR', serif; font-weight: 400; font-size: 14px;
-  outline: none; cursor: text; border-bottom: 1px solid transparent;
+  outline: none; cursor: text; border-bottom: 1px solid transparent; color: var(--ink);
 }
-.viewer-title:focus { border-bottom: 1px solid rgba(255,255,255,0.3); }
-.viewer-date { font-family: 'Inter', sans-serif; font-size: 10px; letter-spacing: 0.05em; color: #a6a49a; }
+.viewer-title:focus { border-bottom: 1px solid var(--border); }
+.viewer-date { font-family: 'Inter', sans-serif; font-size: 10px; letter-spacing: 0.05em; color: var(--ink-faint); }
 .icon-btn {
-  background: none; border: none; color: #d8d6cc; cursor: pointer;
+  background: none; border: none; color: var(--ink-mid); cursor: pointer;
   font-family: 'Inter', sans-serif; font-size: 11px; letter-spacing: 0.05em;
   padding: 6px 8px; opacity: 0.75; transition: opacity 0.15s;
 }
@@ -158,13 +166,13 @@ header {
 }
 .viewer-imgwrap img {
   width: 100%; height: auto; display: block; border-radius: 2px;
-  box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+  box-shadow: 0 6px 24px var(--shadow), 0 1px 3px var(--shadow);
 }
 
 .nav-btn {
   position: absolute; top: 50%; transform: translateY(-50%);
-  background: none; border: none; color: #d8d6cc; font-family: 'EB Garamond', serif;
-  font-size: 34px; cursor: pointer; opacity: 0.55; padding: 10px 16px; transition: opacity 0.15s;
+  background: none; border: none; color: var(--ink-faint); font-family: 'EB Garamond', serif;
+  font-size: 34px; cursor: pointer; opacity: 0.7; padding: 10px 16px; transition: opacity 0.15s;
 }
 .nav-btn:hover { opacity: 1; }
 .nav-prev { left: 4px; }
@@ -176,13 +184,16 @@ header {
 /* ---------- confirm delete ---------- */
 .confirm-bar {
   position: absolute; bottom: 24px; left: 50%; transform: translateX(-50%);
-  background: var(--paper); border-radius: 3px; padding: 10px 14px;
-  display: none; align-items: center; gap: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+  background: var(--paper); border-radius: 5px; padding: 14px 20px;
+  display: none; flex-direction: column; align-items: center; gap: 10px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.25); width: min(280px, 84vw);
 }
 .confirm-bar.show { display: flex; }
-.confirm-text { font-family: 'Noto Serif KR', serif; font-size: 12px; color: var(--ink-mid); }
-.confirm-yes { color: var(--ribbon); font-family: 'Inter', sans-serif; font-size: 11px; background: none; border: none; cursor: pointer; }
-.confirm-no { color: var(--ink-faint); font-family: 'Inter', sans-serif; font-size: 11px; background: none; border: none; cursor: pointer; }
+.confirm-text { font-family: 'Noto Serif KR', serif; font-size: 12.5px; color: var(--ink-mid); text-align: center; line-height: 1.5; }
+.confirm-btn-row { display: flex; gap: 22px; }
+.confirm-yes, .confirm-no { white-space: nowrap; font-family: 'Inter', sans-serif; font-size: 11px; background: none; border: none; cursor: pointer; padding: 2px 4px; }
+.confirm-yes { color: var(--ribbon); }
+.confirm-no { color: var(--ink-faint); }
 
 /* ---------- loading ---------- */
 .loading-note {
@@ -199,6 +210,7 @@ header {
 <header>
   <div class="logo">shelf.</div>
   <div class="tagline">이미지를 책처럼 모아두는 곳</div>
+  <button class="delete-all-btn" id="deleteAllBtn">전체 삭제</button>
 </header>
 
 <div class="wrap">
@@ -224,13 +236,15 @@ header {
   </div>
 
   <button class="nav-btn nav-prev" onclick="navViewer(-1)">‹</button>
-  <div class="viewer-imgwrap"><img id="viewerImg" alt=""></div>
+  <div class="viewer-imgwrap" id="viewerImgWrap"><img id="viewerImg" alt=""></div>
   <button class="nav-btn nav-next" onclick="navViewer(1)">›</button>
 
   <div class="confirm-bar" id="confirmBar">
     <span class="confirm-text">이 이미지를 삭제할까요?</span>
-    <button class="confirm-yes" onclick="doDelete()">삭제</button>
-    <button class="confirm-no" onclick="cancelDelete()">취소</button>
+    <div class="confirm-btn-row">
+      <button class="confirm-yes" onclick="doDelete()">삭제</button>
+      <button class="confirm-no" onclick="cancelDelete()">취소</button>
+    </div>
   </div>
 </div>
 
@@ -516,11 +530,47 @@ viewer.addEventListener('click', (e) => {
   if (e.target === viewer) closeViewer();
 });
 
+// ---------- swipe to navigate ----------
+const viewerImgWrap = document.getElementById('viewerImgWrap');
+let touchStartX = 0, touchStartY = 0;
+viewerImgWrap.addEventListener('touchstart', (e) => {
+  const t = e.changedTouches[0];
+  touchStartX = t.screenX; touchStartY = t.screenY;
+}, { passive: true });
+viewerImgWrap.addEventListener('touchend', (e) => {
+  const t = e.changedTouches[0];
+  const dx = t.screenX - touchStartX;
+  const dy = t.screenY - touchStartY;
+  // only treat as a page-turn swipe if the motion is clearly horizontal
+  if (Math.abs(dx) > 55 && Math.abs(dx) > Math.abs(dy) * 1.4) {
+    if (dx < 0) navViewer(1); else navViewer(-1);
+  }
+}, { passive: true });
+
 // ---------- init ----------
 (async function init() {
   await loadIndex();
   await render();
 })();
+
+// ---------- delete all ----------
+document.getElementById('deleteAllBtn').addEventListener('click', async () => {
+  if (library.length === 0) return;
+  const ok = confirm(`전체 ${library.length}개 이미지를 삭제할까요? 되돌릴 수 없어요.`);
+  if (!ok) return;
+  const btn = document.getElementById('deleteAllBtn');
+  const original = btn.textContent;
+  btn.textContent = '삭제 중…';
+  btn.disabled = true;
+  for (const item of library) {
+    try { await cloudinaryDestroy(item.publicId); } catch (e) {}
+  }
+  library = [];
+  await saveIndex();
+  btn.textContent = original;
+  btn.disabled = false;
+  render();
+});
 </script>
 </body>
 </html>
