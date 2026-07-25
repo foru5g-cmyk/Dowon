@@ -98,6 +98,25 @@ header {
   letter-spacing: 0.04em; text-align: center;
 }
 
+/* ---------- uploading placeholder ---------- */
+.uploading-cover {
+  aspect-ratio: 3 / 4; border-radius: 3px; background: var(--paper);
+  border: 0.5px solid var(--border); display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 10px;
+  box-shadow: 0 1px 2px var(--shadow);
+}
+.spinner {
+  width: 20px; height: 20px; border-radius: 50%;
+  border: 2px solid var(--border); border-top-color: var(--ink-faint);
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.uploading-label {
+  font-family: 'Inter', sans-serif; font-size: 9.5px; color: var(--ink-faint);
+  letter-spacing: 0.04em; text-align: center; max-width: 90%;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
 /* ---------- empty state ---------- */
 .empty {
   grid-column: 1 / -1; text-align: center; padding: 70px 20px;
@@ -133,9 +152,12 @@ header {
 .icon-btn:hover { opacity: 1; }
 .viewer-actions { display: flex; gap: 4px; }
 
-.viewer-imgwrap { max-width: 100%; max-height: 82vh; display: flex; align-items: center; justify-content: center; }
+.viewer-imgwrap {
+  width: min(720px, 92vw); max-height: calc(100vh - 150px);
+  overflow-y: auto; border-radius: 2px; -webkit-overflow-scrolling: touch;
+}
 .viewer-imgwrap img {
-  max-width: 100%; max-height: 82vh; border-radius: 2px;
+  width: 100%; height: auto; display: block; border-radius: 2px;
   box-shadow: 0 20px 60px rgba(0,0,0,0.5);
 }
 
@@ -220,23 +242,46 @@ const API_KEY = '665912648183186';
 const API_SECRET = 'cvVYUghBqmb';
 
 let library = [];   // [{id, title, addedAt, url, publicId}]
+let uploading = [];  // [{tempId, title}] - files currently uploading
 let currentIndex = -1;
 
 const grid = document.getElementById('grid');
 const fileInput = document.getElementById('fileInput');
 
-function loadIndex() {
+// The library index (titles, order, ids) is stored as a single JSON file
+// on Cloudinary itself (as a 'raw' resource), so every device that loads
+// this page reads/writes the same shared list.
+const INDEX_PUBLIC_ID = 'shelf_index.json';
+const INDEX_URL = `https://res.cloudinary.com/${CLOUD_NAME}/raw/upload/${INDEX_PUBLIC_ID}`;
+
+async function loadIndex() {
   try {
-    const raw = localStorage.getItem('shelf:index');
-    library = raw ? JSON.parse(raw) : [];
+    // cache-busting query param avoids getting a stale CDN-cached copy
+    const res = await fetch(`${INDEX_URL}?t=${Date.now()}`);
+    library = res.ok ? await res.json() : [];
   } catch (e) {
     library = [];
   }
   library.sort((a, b) => b.addedAt - a.addedAt);
 }
 
-function saveIndex() {
-  localStorage.setItem('shelf:index', JSON.stringify(library));
+async function saveIndex() {
+  const blob = new Blob([JSON.stringify(library)], { type: 'application/json' });
+  const timestamp = Math.floor(Date.now() / 1000);
+  const paramsToSign = `overwrite=true&public_id=${INDEX_PUBLIC_ID}&timestamp=${timestamp}${API_SECRET}`;
+  const signature = await sha1Hex(paramsToSign);
+  const fd = new FormData();
+  fd.append('file', blob, INDEX_PUBLIC_ID);
+  fd.append('public_id', INDEX_PUBLIC_ID);
+  fd.append('overwrite', 'true');
+  fd.append('timestamp', timestamp);
+  fd.append('api_key', API_KEY);
+  fd.append('signature', signature);
+  try {
+    await fetch(`https://api.cloudinary.com/v1_1/${CLOUD_NAME}/raw/upload`, { method: 'POST', body: fd });
+  } catch (e) {
+    console.error('index sync failed', e);
+  }
 }
 
 async function sha1Hex(str) {
@@ -292,7 +337,21 @@ async function render() {
   grid.appendChild(addCard);
   addCard.querySelector('#addCover').onclick = () => fileInput.click();
 
-  if (library.length === 0) {
+  for (const u of uploading) {
+    const upCard = document.createElement('div');
+    upCard.className = 'card';
+    upCard.innerHTML = `
+      <div class="uploading-cover">
+        <div class="spinner"></div>
+        <div class="uploading-label">${esc(u.title)}</div>
+      </div>
+      <div class="cap">
+        <div class="cap-title" style="color:var(--ink-faint)">업로드 중…</div>
+      </div>`;
+    grid.appendChild(upCard);
+  }
+
+  if (library.length === 0 && uploading.length === 0) {
     const empty = document.createElement('div');
     empty.className = 'empty';
     empty.innerHTML = `<div class="empty-glyph">＋</div><div class="empty-text">아직 저장된 이미지가 없어요.<br>위의 + 를 눌러 첫 이미지를 담아보세요.</div>`;
@@ -316,7 +375,7 @@ async function render() {
     grid.appendChild(card);
 
     const imgEl = card.querySelector('img');
-    imgEl.src = item.url;
+    imgEl.src = thumbUrl(item.url);
 
     card.querySelector('.cover').addEventListener('click', () => openViewer(i));
 
@@ -342,61 +401,38 @@ fileInput.addEventListener('change', async (e) => {
   const files = Array.from(e.target.files || []);
   fileInput.value = '';
   for (const file of files) {
-    await addImage(file);
+    const tempId = 'tmp_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    uploading.push({ tempId, title: file.name });
+    render();
+    await addImage(file, tempId);
   }
 });
 
-function compressImage(file, maxDim = 1500, quality = 0.85) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const img = new Image();
-      img.onload = () => {
-        let { width, height } = img;
-        if (width > maxDim || height > maxDim) {
-          if (width > height) { height = Math.round(height * maxDim / width); width = maxDim; }
-          else { width = Math.round(width * maxDim / height); height = maxDim; }
-        }
-        const canvas = document.createElement('canvas');
-        canvas.width = width; canvas.height = height;
-        const ctx = canvas.getContext('2d');
-        ctx.drawImage(img, 0, 0, width, height);
-        canvas.toBlob(blob => {
-          if (blob) resolve(blob); else reject(new Error('toBlob failed'));
-        }, 'image/jpeg', quality);
-      };
-      img.onerror = reject;
-      img.src = reader.result;
-    };
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
-}
-
-async function addImage(file) {
-  let blob;
-  try {
-    blob = await compressImage(file);
-  } catch (e) {
-    alert('이미지를 처리하지 못했습니다: ' + file.name);
-    return;
-  }
-
+async function addImage(file, tempId) {
   const title = file.name.replace(/\.[^.]+$/, '') || '제목 없음';
   const addedAt = Date.now();
 
   let uploadResult;
   try {
-    uploadResult = await cloudinaryUpload(blob);
+    uploadResult = await cloudinaryUpload(file);
   } catch (e) {
+    uploading = uploading.filter(u => u.tempId !== tempId);
+    render();
     alert('Cloudinary 업로드에 실패했습니다. (' + file.name + ')');
     return;
   }
 
   const id = uploadResult.public_id;
   library.unshift({ id, title, addedAt, url: uploadResult.secure_url, publicId: uploadResult.public_id });
+  uploading = uploading.filter(u => u.tempId !== tempId);
   await saveIndex();
   render();
+}
+
+// Build a lightweight, cropped thumbnail URL for grid covers (keeps the
+// grid fast to load) while the stored original / viewer stays full quality.
+function thumbUrl(url) {
+  return url.replace('/upload/', '/upload/c_fill,w_450,h_600,q_auto,f_auto/');
 }
 
 // ---------- viewer ----------
