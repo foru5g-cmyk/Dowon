@@ -225,18 +225,18 @@ let currentIndex = -1;
 const grid = document.getElementById('grid');
 const fileInput = document.getElementById('fileInput');
 
-async function loadIndex() {
+function loadIndex() {
   try {
-    const res = await window.storage.get('shelf:index', false);
-    library = res && res.value ? JSON.parse(res.value) : [];
+    const raw = localStorage.getItem('shelf:index');
+    library = raw ? JSON.parse(raw) : [];
   } catch (e) {
     library = [];
   }
   library.sort((a, b) => b.addedAt - a.addedAt);
 }
 
-async function saveIndex() {
-  await window.storage.set('shelf:index', JSON.stringify(library), false);
+function saveIndex() {
+  localStorage.setItem('shelf:index', JSON.stringify(library));
 }
 
 async function sha1Hex(str) {
@@ -441,23 +441,15 @@ viewerTitle.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') { e.preventDefault(); viewerTitle.blur(); }
 });
 
-async function downloadCurrent() {
+function downloadCurrent() {
   if (currentIndex < 0) return;
   const item = library[currentIndex];
-  try {
-    const res = await fetch(item.url);
-    const blob = await res.blob();
-    const objUrl = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = objUrl;
-    a.download = (item.title || 'image') + '.jpg';
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(objUrl);
-  } catch (e) {
-    alert('다운로드에 실패했습니다.');
-  }
+  // Insert fl_attachment right after /upload/ so Cloudinary serves the file
+  // with a Content-Disposition header, triggering a native download/save
+  // prompt without needing a cross-origin fetch (which Safari often blocks).
+  const filename = encodeURIComponent(item.title || 'image');
+  const dlUrl = item.url.replace('/upload/', `/upload/fl_attachment:${filename}/`);
+  window.open(dlUrl, '_blank');
 }
 
 function askDelete() { confirmBar.classList.add('show'); }
