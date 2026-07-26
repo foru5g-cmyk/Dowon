@@ -271,7 +271,7 @@ header {
 const CLOUD_NAME = 'fabryybg';
 const UPLOAD_PRESET = 'Doneeee';
 const API_KEY = '665912648183186';
-const API_SECRET = 'cvVYUghBqmb';
+const API_SECRET = 'cvVYUghBqmb-gtpHia_m5TJZ7Sw';
 
 let library = [];   // [{id, title, addedAt, url, publicId}]
 let uploading = [];  // [{tempId, title}] - files currently uploading
@@ -282,28 +282,62 @@ let selected = new Set(); // ids currently checked
 const grid = document.getElementById('grid');
 const fileInput = document.getElementById('fileInput');
 
-// The library index (titles, order, ids) is stored in this browser's
-// localStorage. The image files themselves always live on Cloudinary
-// (confirmed working) — only the *list* of what's been uploaded is kept
-// locally, since syncing that list across devices via Cloudinary itself
-// turned out to be unreliable on this account.
+// The library index (titles, order, ids) is stored as a single JSON file
+// on Cloudinary itself (as a 'raw' resource, uploaded via the same Upload
+// API used for images/deletes). Every device that loads this page reads
+// the same shared list.
+const INDEX_PUBLIC_ID = 'shelf_index';
+const INDEX_URL = `https://res.cloudinary.com/${CLOUD_NAME}/raw/upload/${INDEX_PUBLIC_ID}`;
 const CLOUDINARY_TAG = 'shelf';
 
-function loadIndex() {
+// True only once we've successfully confirmed the real remote state.
+// Prevents ever overwriting real data with an empty list just because a
+// fetch failed.
+let indexLoaded = false;
+let lastLoadError = '';
+
+async function loadIndex() {
   try {
-    const raw = localStorage.getItem('shelf:index');
-    library = raw ? JSON.parse(raw) : [];
+    const res = await fetch(`${INDEX_URL}?t=${Date.now()}`);
+    if (res.ok) {
+      library = await res.json();
+      indexLoaded = true;
+    } else if (res.status === 404) {
+      library = [];
+      indexLoaded = true;
+    } else {
+      library = [];
+      indexLoaded = false;
+      lastLoadError = 'HTTP ' + res.status;
+    }
   } catch (e) {
     library = [];
+    indexLoaded = false;
+    lastLoadError = e.message || String(e);
   }
   library.sort((a, b) => b.addedAt - a.addedAt);
 }
 
-function saveIndex() {
+async function saveIndex() {
+  if (!indexLoaded) {
+    alert('목록을 불러오지 못한 상태라 저장을 건너뛰었어요. 새로고침 후 다시 시도해주세요.');
+    return;
+  }
+  const blob = new Blob([JSON.stringify(library)], { type: 'application/json' });
+  const timestamp = Math.floor(Date.now() / 1000);
+  const paramsToSign = `overwrite=true&public_id=${INDEX_PUBLIC_ID}&timestamp=${timestamp}${API_SECRET}`;
+  const signature = await sha1Hex(paramsToSign);
+  const fd = new FormData();
+  fd.append('file', blob, INDEX_PUBLIC_ID);
+  fd.append('public_id', INDEX_PUBLIC_ID);
+  fd.append('overwrite', 'true');
+  fd.append('timestamp', timestamp);
+  fd.append('api_key', API_KEY);
+  fd.append('signature', signature);
   try {
-    localStorage.setItem('shelf:index', JSON.stringify(library));
+    await fetch(`https://api.cloudinary.com/v1_1/${CLOUD_NAME}/raw/upload`, { method: 'POST', body: fd });
   } catch (e) {
-    console.error('local save failed', e);
+    console.error('index sync failed', e);
   }
 }
 
@@ -361,6 +395,15 @@ async function render() {
     </div>`;
   grid.appendChild(addCard);
   addCard.querySelector('#addCover').onclick = () => fileInput.click();
+
+  if (!indexLoaded) {
+    const warn = document.createElement('div');
+    warn.className = 'empty';
+    warn.style.gridColumn = '1 / -1';
+    warn.style.padding = '20px';
+    warn.innerHTML = `<div class="empty-text">목록 동기화에 문제가 있어요. 지금 추가하는 사진은 이 화면엔 보이지만 다른 기기엔 아직 반영 안 될 수 있어요.<br><span style="font-family:'Inter',sans-serif;font-size:9px;opacity:0.7;">(${esc(lastLoadError || '알 수 없음')})</span></div>`;
+    grid.appendChild(warn);
+  }
 
   for (const u of uploading) {
     const upCard = document.createElement('div');
