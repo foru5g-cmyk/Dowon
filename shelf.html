@@ -287,10 +287,8 @@ const fileInput = document.getElementById('fileInput');
 // delay like Cloudinary's raw file had, so updates show up instantly on
 // every device).
 const JSONBIN_KEY = '$2a$10$pKoncs9.65ZBJtHLFzozE.O/56SMfVd1mIWUNzZaiG1phcBkw803G';
-// Filled in once, after the very first run creates the bin (see the
-// bootstrap alert in loadIndex below). Until then, a new bin is created
-// automatically on load.
-let JSONBIN_BIN_ID = '';
+// Filled in once, after the very first run created the bin.
+let JSONBIN_BIN_ID = '6a65a21ff5f4af5e29c2230b';
 const CLOUDINARY_TAG = 'shelf'; // tag on every uploaded image, for recovery if ever needed
 
 let indexLoaded = false;
