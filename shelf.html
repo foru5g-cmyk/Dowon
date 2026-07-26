@@ -282,28 +282,46 @@ let selected = new Set(); // ids currently checked
 const grid = document.getElementById('grid');
 const fileInput = document.getElementById('fileInput');
 
-// The library index (titles, order, ids) is stored as a single JSON file
-// on Cloudinary itself (as a 'raw' resource, uploaded via the same Upload
-// API used for images/deletes). Every device that loads this page reads
-// the same shared list.
-const INDEX_PUBLIC_ID = 'shelf_index';
-const INDEX_URL = `https://res.cloudinary.com/${CLOUD_NAME}/raw/upload/${INDEX_PUBLIC_ID}`;
-const CLOUDINARY_TAG = 'shelf';
+// The library index (titles, order, ids) is stored on jsonbin.io — a
+// small key-value JSON store built for exactly this (no CDN caching
+// delay like Cloudinary's raw file had, so updates show up instantly on
+// every device).
+const JSONBIN_KEY = '$2a$10$pKoncs9.65ZBJtHLFzozE.O/56SMfVd1mIWUNzZaiG1phcBkw803G';
+// Filled in once, after the very first run creates the bin (see the
+// bootstrap alert in loadIndex below). Until then, a new bin is created
+// automatically on load.
+let JSONBIN_BIN_ID = '';
+const CLOUDINARY_TAG = 'shelf'; // tag on every uploaded image, for recovery if ever needed
 
-// True only once we've successfully confirmed the real remote state.
-// Prevents ever overwriting real data with an empty list just because a
-// fetch failed.
 let indexLoaded = false;
 let lastLoadError = '';
 
 async function loadIndex() {
   try {
-    const res = await fetch(`${INDEX_URL}?t=${Date.now()}`);
+    if (!JSONBIN_BIN_ID) {
+      // one-time bootstrap: create the shared bin
+      const createRes = await fetch('https://api.jsonbin.io/v3/b', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Master-Key': JSONBIN_KEY,
+          'X-Bin-Name': 'shelf-index'
+        },
+        body: JSON.stringify([])
+      });
+      if (!createRes.ok) throw new Error('bin create failed: HTTP ' + createRes.status);
+      const createData = await createRes.json();
+      JSONBIN_BIN_ID = createData.metadata.id;
+      library = [];
+      indexLoaded = true;
+      alert('처음 설정이에요! 이 코드를 그대로 복사해서 Claude한테 보내주세요:\n\n' + JSONBIN_BIN_ID);
+      return;
+    }
+    const res = await fetch(`https://api.jsonbin.io/v3/b/${JSONBIN_BIN_ID}/latest`, {
+      headers: { 'X-Master-Key': JSONBIN_KEY, 'X-Bin-Meta': 'false' }
+    });
     if (res.ok) {
       library = await res.json();
-      indexLoaded = true;
-    } else if (res.status === 404) {
-      library = [];
       indexLoaded = true;
     } else {
       library = [];
@@ -319,23 +337,17 @@ async function loadIndex() {
 }
 
 async function saveIndex() {
-  if (!indexLoaded) {
+  if (!indexLoaded || !JSONBIN_BIN_ID) {
+    if (!JSONBIN_BIN_ID) return; // still bootstrapping, nothing to save yet
     alert('목록을 불러오지 못한 상태라 저장을 건너뛰었어요. 새로고침 후 다시 시도해주세요.');
     return;
   }
-  const blob = new Blob([JSON.stringify(library)], { type: 'application/json' });
-  const timestamp = Math.floor(Date.now() / 1000);
-  const paramsToSign = `overwrite=true&public_id=${INDEX_PUBLIC_ID}&timestamp=${timestamp}${API_SECRET}`;
-  const signature = await sha1Hex(paramsToSign);
-  const fd = new FormData();
-  fd.append('file', blob, INDEX_PUBLIC_ID);
-  fd.append('public_id', INDEX_PUBLIC_ID);
-  fd.append('overwrite', 'true');
-  fd.append('timestamp', timestamp);
-  fd.append('api_key', API_KEY);
-  fd.append('signature', signature);
   try {
-    await fetch(`https://api.cloudinary.com/v1_1/${CLOUD_NAME}/raw/upload`, { method: 'POST', body: fd });
+    await fetch(`https://api.jsonbin.io/v3/b/${JSONBIN_BIN_ID}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', 'X-Master-Key': JSONBIN_KEY },
+      body: JSON.stringify(library)
+    });
   } catch (e) {
     console.error('index sync failed', e);
   }
